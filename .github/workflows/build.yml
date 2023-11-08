@@ -1,0 +1,81 @@
+---
+name: build viu
+run-name: build viu-${{inputs.ref}}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: true
+        description: ref to build (full sha or tag)
+        default: 72c1f129c68a22a3db7bc42e3d8b708b50b71cee
+        type: string
+
+permissions: write-all
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: aarch64-unknown-linux-gnu, os: ubuntu-latest, cross: true}
+          - {target: aarch64-unknown-linux-musl, os: ubuntu-latest, cross: true}
+          - {target: x86_64-unknown-linux-gnu, os: ubuntu-latest, cross: false}
+          - {target: x86_64-unknown-linux-musl, os: ubuntu-latest, cross: false}
+          - {target: aarch64-apple-darwin, os: macos-latest, cross: false}
+          - {target: x86_64-apple-darwin, os: macos-latest, cross: false}
+
+    name: Build ${{matrix.target}}
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO: cargo
+      RUST_BACKTRACE: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          repository: atanunq/viu
+          ref: ${{inputs.ref}}
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Install Cross
+        if: matrix.cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross.git
+          echo "CARGO=cross" >> $GITHUB_ENV
+
+      - name: Set profile.release.strip = true
+        shell: bash
+        run: |
+          mkdir -p $HOME/.cargo
+          cat >> $HOME/.cargo/config.toml <<EOF
+          [profile.release]
+          strip = true
+          EOF
+
+      - name: Build release binary
+        run: |-
+          ${{ env.CARGO }} build --release --locked --target ${{ matrix.target }}
+
+      - name: Get short commit hash
+        env:
+          FULL_REF: ${{inputs.ref}}
+        run: echo "ref=${FULL_REF:0:7}" >> $GITHUB_ENV
+
+      - name: Upload ${{matrix.target}}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |-
+          mv "target/${{ matrix.target }}/release/viu" ./viu
+          tar -cJf "viu-${{matrix.target}}-${{env.ref}}.tar.xz" viu
+          # create release if not exist
+          gh release create "${{env.ref}}" --notes "Release viu ${{env.ref}}" --title "viu-${{env.ref}}" --repo "${{github.repository}}" || true
+          # delete the asset if exists
+          gh release delete-asset "${{env.ref}}" "viu-${{matrix.target}}-${{env.ref}}.tar.xz" --yes --repo "${{github.repository}}" || true
+          gh release upload "${{env.ref}}" "./viu-${{matrix.target}}-${{env.ref}}.tar.xz" --repo "${{github.repository}}"
