@@ -1,14 +1,14 @@
 ---
-name: build viu
-run-name: build viu-${{inputs.ref}}
+name: manual
+run-name: build viu-${{inputs.version}}
 
 on:
   workflow_dispatch:
     inputs:
-      ref:
+      version:
         required: true
-        description: ref to build (full sha or tag)
-        default: 72c1f129c68a22a3db7bc42e3d8b708b50b71cee
+        description: version to build (without "v")
+        default: 1.4.0
         type: string
 
 permissions: write-all
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@main
         with:
           repository: atanunq/viu
-          ref: ${{inputs.ref}}
+          ref: v${{inputs.version}}
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -63,19 +63,14 @@ jobs:
         run: |-
           ${{ env.CARGO }} build --release --locked --target ${{ matrix.target }}
 
-      - name: Get short commit hash
-        env:
-          FULL_REF: ${{inputs.ref}}
-        run: echo "ref=${FULL_REF:0:7}" >> $GITHUB_ENV
-
       - name: Upload ${{matrix.target}}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
           mv "target/${{ matrix.target }}/release/viu" ./viu
-          tar -cJf "viu-${{matrix.target}}-${{env.ref}}.tar.xz" viu
+          tar -cJf "viu-v${{inputs.version}}-${{matrix.target}}.tar.xz" viu
           # create release if not exist
-          gh release create "${{env.ref}}" --notes "Release viu ${{env.ref}}" --title "viu-${{env.ref}}" --repo "${{github.repository}}" || true
+          gh release create "v${{inputs.version}}" --notes "Release viu ${{inputs.version}}" --title "viu-v${{inputs.version}}" --repo "${{github.repository}}" || true
           # delete the asset if exists
-          gh release delete-asset "${{env.ref}}" "viu-${{matrix.target}}-${{env.ref}}.tar.xz" --yes --repo "${{github.repository}}" || true
-          gh release upload "${{env.ref}}" "./viu-${{matrix.target}}-${{env.ref}}.tar.xz" --repo "${{github.repository}}"
+          gh release delete-asset "v${{inputs.version}}" "viu-v${{inputs.version}}-${{matrix.target}}.tar.xz" --yes --repo "${{github.repository}}" || true
+          gh release upload "v${{inputs.version}}" "./viu-v${{inputs.version}}-${{matrix.target}}.tar.xz" --repo "${{github.repository}}"
